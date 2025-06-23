@@ -20,4 +20,5 @@ A FullStack app built with Flask ad react for managing medical clinics, services
 - **SQLAlchemy** + **Flask-Migrate**
 - **PostgreSQL** / SQLite (dev)
 - **bcrypt** for password hashing
+- react
 
