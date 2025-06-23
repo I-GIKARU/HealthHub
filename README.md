@@ -1,4 +1,4 @@
-HealthHub
+#HealthHub
 A RESTful API built with Flask for managing medical clinics, services, patients, bookings, and reviews. Includes role-based authentication for **admins**, **clinics**, and **patients**.
 
 ---
