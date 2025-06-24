@@ -1,4 +1,3 @@
-
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy_serializer import SerializerMixin
 from datetime import datetime
@@ -6,14 +5,14 @@ from datetime import datetime
 db = SQLAlchemy()
 
 
-
 class Clinic(db.Model, SerializerMixin):
     __tablename__ = 'clinics'
 
     serialize_rules = (
         '-reviews.clinic',
-        '-insurance_accepted.clinic',
+        '-insurance_accepted.clinics',
         '-bookings.clinic',
+        '-services.clinics',
     )
 
     id = db.Column(db.String(50), primary_key=True)
@@ -31,10 +30,15 @@ class Clinic(db.Model, SerializerMixin):
         'Service', 
         secondary=clinic_service,
         back_populates='clinics',
-        lazy='dynamic'  # Allows for querying on the relationship
+        lazy='dynamic'
     )
     reviews = db.relationship('Review', back_populates='clinic', cascade='all, delete-orphan')
-    insurance_accepted = db.relationship('Insurance', back_populates='clinic', cascade='all, delete-orphan')
+    insurance_accepted = db.relationship(
+        'Insurance',
+        secondary=clinic_insurance,
+        back_populates='clinics',
+        lazy='dynamic'
+    )
     bookings = db.relationship('Booking', back_populates='clinic', cascade='all, delete-orphan')
 
     def __repr__(self):
@@ -50,7 +54,7 @@ class Service(db.Model, SerializerMixin):
 
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False, unique=True)
-    price = db.Column(db.Numeric(10, 2), nullable=False)
+    price = db.Column(db.Integer(100), nullable=False)
     duration = db.Column(db.Integer, nullable=False)  
 
     # Relationships
@@ -65,6 +69,24 @@ class Service(db.Model, SerializerMixin):
     def __repr__(self):
         return f'<Service {self.name} (KSh {self.price})>'
 
+class Insurance(db.Model, SerializerMixin):
+    __tablename__ = 'insurances'
+
+    serialize_rules = ('-clinics.insurance_accepted',)
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(50), nullable=False, unique=True)
+    
+    clinics = db.relationship(
+        'Clinic',
+        secondary=clinic_insurance,
+        back_populates='insurance_accepted',
+        lazy='dynamic'
+    )
+
+    def __repr__(self):
+        return f'<Insurance {self.name}>'
+
 
 # Join table for clinics and services many-to-many relationship
 clinic_service = db.Table(
@@ -73,18 +95,14 @@ clinic_service = db.Table(
     db.Column('service_id', db.Integer, db.ForeignKey('services.id'), primary_key=True),
     db.Column('created_at', db.DateTime, default=datetime.utcnow)
 )
-class Insurance(db.Model, SerializerMixin):
-    __tablename__ = 'insurances'
 
-    serialize_rules = ('-clinics.insurance_accepted',)
-
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(50), nullable=False, unique=True)
-    clinic_id = db.Column(db.String(50), db.ForeignKey('clinics.id'))
-
-    clinic = db.relationship('Clinic', back_populates='insurance_accepted')
-
-
+# Join table for clinics and insurance many-to-many relationship
+clinic_insurance = db.Table(
+    'clinic_insurance',
+    db.Column('clinic_id', db.String(50), db.ForeignKey('clinics.id'), primary_key=True),
+    db.Column('insurance_id', db.Integer, db.ForeignKey('insurances.id'), primary_key=True),
+    db.Column('created_at', db.DateTime, default=datetime.utcnow)
+)
 
 class Patient(db.Model, SerializerMixin):
     __tablename__ = 'patients'
@@ -151,14 +169,3 @@ class Booking(db.Model, SerializerMixin):
 
     def __repr__(self):
         return f'<Booking for {self.patient.name} at {self.clinic.name}>'
-
-
-
-
-
-
-
-
-
-
-
