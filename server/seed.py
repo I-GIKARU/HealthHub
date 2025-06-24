@@ -48,7 +48,7 @@ def create_clinics(services, insurances):
             email=fake.unique.email(),
             street=fake.street_address(),
             city=fake.city(),
-            # image_url=fake.image_url()
+           
         )
         for service in random.sample(services, k=2):
             clinic.services.append(service)
