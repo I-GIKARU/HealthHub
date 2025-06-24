@@ -1,6 +1,8 @@
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy_serializer import SerializerMixin
 from datetime import datetime
+from flask_bcrypt import generate_password_hash, check_password_hash
+from flask_jwt_extended import create_access_token
 
 db = SQLAlchemy()
 
