@@ -170,3 +170,24 @@ class Booking(db.Model, SerializerMixin):
 
     def __repr__(self):
         return f'<Booking for {self.patient.name} at {self.clinic.name}>'
+
+
+
+class User(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), unique=True, nullable=False)
+    password_hash = db.Column(db.String(128), nullable=False)
+    role = db.Column(db.String(20), nullable=False, default='patient')  # 'admin', 'clinic', or 'patient'
+
+    def set_password(self, password):
+        self.password_hash = generate_password_hash(password).decode('utf-8')
+
+    def check_password(self, password):
+        return check_password_hash(self.password_hash, password)
+
+    def get_token(self):
+        return create_access_token(identity={
+            'id': self.id,
+            'username': self.username,
+            'role': self.role
+        })
