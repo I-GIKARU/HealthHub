@@ -5,6 +5,22 @@ from datetime import datetime
 db = SQLAlchemy()
 
 
+# Join table for clinics and services many-to-many relationship
+clinic_service = db.Table(
+    'clinic_service',
+    db.Column('clinic_id', db.String(50), db.ForeignKey('clinics.id'), primary_key=True),
+    db.Column('service_id', db.Integer, db.ForeignKey('services.id'), primary_key=True),
+    db.Column('created_at', db.DateTime, default=datetime.utcnow)
+)
+
+# Join table for clinics and insurance many-to-many relationship
+clinic_insurance = db.Table(
+    'clinic_insurance',
+    db.Column('clinic_id', db.String(50), db.ForeignKey('clinics.id'), primary_key=True),
+    db.Column('insurance_id', db.Integer, db.ForeignKey('insurances.id'), primary_key=True),
+    db.Column('created_at', db.DateTime, default=datetime.utcnow)
+)
+
 class Clinic(db.Model, SerializerMixin):
     __tablename__ = 'clinics'
 
@@ -88,21 +104,6 @@ class Insurance(db.Model, SerializerMixin):
         return f'<Insurance {self.name}>'
 
 
-# Join table for clinics and services many-to-many relationship
-clinic_service = db.Table(
-    'clinic_service',
-    db.Column('clinic_id', db.String(50), db.ForeignKey('clinics.id'), primary_key=True),
-    db.Column('service_id', db.Integer, db.ForeignKey('services.id'), primary_key=True),
-    db.Column('created_at', db.DateTime, default=datetime.utcnow)
-)
-
-# Join table for clinics and insurance many-to-many relationship
-clinic_insurance = db.Table(
-    'clinic_insurance',
-    db.Column('clinic_id', db.String(50), db.ForeignKey('clinics.id'), primary_key=True),
-    db.Column('insurance_id', db.Integer, db.ForeignKey('insurances.id'), primary_key=True),
-    db.Column('created_at', db.DateTime, default=datetime.utcnow)
-)
 
 class Patient(db.Model, SerializerMixin):
     __tablename__ = 'patients'
