@@ -10,17 +10,17 @@ db = SQLAlchemy()
 # Join table for clinics and services many-to-many relationship
 clinic_service = db.Table(
     'clinic_service',
-    db.Column('clinic_id', db.String(50), db.ForeignKey('clinics.id'), primary_key=True),
+    db.Column('clinic_id', db.Integer, db.ForeignKey('clinics.id'), primary_key=True),
     db.Column('service_id', db.Integer, db.ForeignKey('services.id'), primary_key=True),
-    db.Column('created_at', db.DateTime, default=datetime.utcnow)
+    db.Column('created_at', db.DateTime, default=datetime.now)
 )
 
 # Join table for clinics and insurance many-to-many relationship
 clinic_insurance = db.Table(
     'clinic_insurance',
-    db.Column('clinic_id', db.String(50), db.ForeignKey('clinics.id'), primary_key=True),
+    db.Column('clinic_id', db.Integer, db.ForeignKey('clinics.id'), primary_key=True),
     db.Column('insurance_id', db.Integer, db.ForeignKey('insurances.id'), primary_key=True),
-    db.Column('created_at', db.DateTime, default=datetime.utcnow)
+    db.Column('created_at', db.DateTime, default=datetime.now)
 )
 
 class Clinic(db.Model, SerializerMixin):
@@ -36,7 +36,7 @@ class Clinic(db.Model, SerializerMixin):
     id = db.Column(db.String(50), primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     specialty = db.Column(db.String(100), nullable=False)
-    description = db.Column(db.Text)
+    description = db.Column(db.String)
     contact = db.Column(db.String(20), unique=True, nullable=False)
     email = db.Column(db.String(100), unique=True, nullable=False)
     street = db.Column(db.String(200), nullable=False)
@@ -119,7 +119,7 @@ class Patient(db.Model, SerializerMixin):
     name = db.Column(db.String(100), nullable=False)
     contact = db.Column(db.String(20), unique=True, nullable=False)
     email = db.Column(db.String(100), unique=True, nullable=False)
-    date_joined = db.Column(db.DateTime, default=datetime.utcnow)
+    date_joined = db.Column(db.DateTime, default=datetime.now)
 
     reviews = db.relationship('Review', back_populates='patient', cascade='all, delete-orphan')
     bookings = db.relationship('Booking', back_populates='patient', cascade='all, delete-orphan')
@@ -136,11 +136,11 @@ class Review(db.Model, SerializerMixin):
     )
 
     id = db.Column(db.Integer, primary_key=True)
-    comment = db.Column(db.Text)
+    comment = db.Column(db.String)
     rating = db.Column(db.Integer, nullable=False)
-    date = db.Column(db.DateTime, default=datetime.utcnow)
-    clinic_id = db.Column(db.String(50), db.ForeignKey('clinics.id'))
-    patient_id = db.Column(db.String(50), db.ForeignKey('patients.id'))
+    date = db.Column(db.DateTime, default=datetime.now)
+    clinic_id = db.Column(db.Integer, db.ForeignKey('clinics.id'))
+    patient_id = db.Column(db.Integer, db.ForeignKey('patients.id'))
 
     clinic = db.relationship('Clinic', back_populates='reviews')
     patient = db.relationship('Patient', back_populates='reviews')
@@ -161,10 +161,10 @@ class Booking(db.Model, SerializerMixin):
     booking_date = db.Column(db.DateTime, nullable=False)
     appointment_date = db.Column(db.DateTime, nullable=False)
     status = db.Column(db.String(20), default='pending')  # pending, confirmed, cancelled, completed
-    notes = db.Column(db.Text)
-    clinic_id = db.Column(db.String(50), db.ForeignKey('clinics.id'))
+    notes = db.Column(db.String)
+    clinic_id = db.Column(db.Integer, db.ForeignKey('clinics.id'))
     service_id = db.Column(db.Integer, db.ForeignKey('services.id'))
-    patient_id = db.Column(db.String(50), db.ForeignKey('patients.id'))
+    patient_id = db.Column(db.Integer, db.ForeignKey('patients.id'))
 
     clinic = db.relationship('Clinic', back_populates='bookings')
     service = db.relationship('Service', back_populates='bookings')
