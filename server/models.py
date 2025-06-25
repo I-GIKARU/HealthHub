@@ -3,6 +3,10 @@ from sqlalchemy_serializer import SerializerMixin
 from datetime import datetime
 from flask_bcrypt import generate_password_hash, check_password_hash
 from flask_jwt_extended import create_access_token
+import re
+from sqlalchemy.orm import validates
+
+email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
 
 db = SQLAlchemy()
 
@@ -80,6 +84,13 @@ class Clinic(db.Model, SerializerMixin):
     @property
     def services(self):
         return [assoc.service for assoc in self.service_associations]
+    
+    @validates('email')
+    def validate_email(self, key, address):
+        address = address.strip().lower()
+        if not re.match(email_pattern, address):
+            raise ValueError("Invalid email format")
+        return address
 
     def __repr__(self):
         return f'<Clinic {self.name} ({self.specialty}) in {self.city}>'
@@ -156,6 +167,13 @@ class Patient(db.Model, SerializerMixin):
         back_populates='patient',
         cascade='all, delete-orphan'
     )
+    
+    @validates('email')
+    def validate_email(self, key, address):
+        address = address.strip().lower()
+        if not re.match(email_pattern, address):
+            raise ValueError("Invalid email format")
+        return address
 
     def __repr__(self):
         return f'<Patient {self.name}>'
