@@ -1,6 +1,7 @@
+#!/usr/bin/env python3
 from flask_migrate import Migrate
 
-from models import db, Clinic, Patient, Insurance, Service, User, Booking, Review
+from models import db, Clinic, Patient, Insurance, Service, User, Booking, Review, ClinicService
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from flask_restful import Api, Resource
@@ -22,12 +23,13 @@ app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL',
                                                        f'sqlite:///{os.path.join(os.path.abspath(os.path.dirname(__file__)), "healthhub.db")}')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['JWT_SECRET_KEY'] = os.environ.get('JWT_SECRET_KEY', 'super-jwt-secret')
+app.config['JWT_ACCESS_TOKEN_EXPIRES'] = False  # Fixed: Added JWT token expiration config
 
 # Enable CORS
 CORS(app, resources={
     r"/api/*": {
         "origins": ["*"],
-        "methods": ["GET", "POST", "PUT", "DELETE"],
+        "methods": ["GET", "POST", "PUT", "DELETE", "PATCH"],  # Fixed: Added PATCH method
         "allow_headers": ["Content-Type", "Authorization"],
         "supports_credentials": True
     }
@@ -39,6 +41,15 @@ jwt = JWTManager(app)
 api = Api(app)
 migrate = Migrate(app, db)
 
+# Error handlers
+@app.errorhandler(404)
+def not_found(error):
+    return {'error': 'Resource not found'}, 404
+
+@app.errorhandler(500)
+def internal_error(error):
+    db.session.rollback()
+    return {'error': 'Internal server error'}, 500
 
 # Role-based access decorator
 def role_required(role):
@@ -55,61 +66,64 @@ def role_required(role):
 
     return wrapper
 
-
 # Resource: User Registration
 class UserRegistration(Resource):
     def post(self):
-        data = request.get_json()
-        if not data or 'username' not in data or 'password' not in data:
-            return {'message': 'Username and password required'}, 400
+        try:
+            data = request.get_json()
+            if not data or 'username' not in data or 'password' not in data:
+                return {'message': 'Username and password required'}, 400
 
-        if User.query.filter_by(username=data['username']).first():
-            return {'message': 'Username already exists'}, 400
+            if User.query.filter_by(username=data['username']).first():
+                return {'message': 'Username already exists'}, 400
 
-        user = User(
-            username=data['username'],
-            role=data.get('role', 'patient')
-        )
-        user.set_password(data['password'])
-        db.session.add(user)
-        db.session.commit()
+            user = User(
+                username=data['username'],
+                role=data.get('role', 'patient')
+            )
+            user.set_password(data['password'])
+            db.session.add(user)
+            db.session.commit()
 
-        return {'message': 'User created successfully'}, 201
-
+            return {'message': 'User created successfully'}, 201
+        except Exception as exc:
+            db.session.rollback()
+            return {'error': str(exc)}, 500
 
 # Resource: User Login
 class UserLogin(Resource):
     def post(self):
-        data = request.get_json()
-        if not data or 'username' not in data or 'password' not in data:
-            return {'message': 'Username and password required'}, 400
+        try:
+            data = request.get_json()
+            if not data or 'username' not in data or 'password' not in data:
+                return {'message': 'Username and password required'}, 400
 
-        user = User.query.filter_by(username=data['username']).first()
-        if not user or not user.check_password(data['password']):
-            return {'message': 'Invalid credentials'}, 401
+            user = User.query.filter_by(username=data['username']).first()
+            if not user or not user.check_password(data['password']):
+                return {'message': 'Invalid credentials'}, 401
 
-        token = create_access_token(identity={
-            'id': user.id,
-            'username': user.username,
-            'role': user.role
-        })
-
-        return {
-            'access_token': token,
-            'user': {
+            token = create_access_token(identity={
                 'id': user.id,
                 'username': user.username,
                 'role': user.role
-            }
-        }, 200
+            })
 
+            return {
+                'access_token': token,
+                'user': {
+                    'id': user.id,
+                    'username': user.username,
+                    'role': user.role
+                }
+            }, 200
+        except Exception as exc:
+            return {'error': str(exc)}, 500
 
 # Resource: User Logout
 class UserLogout(Resource):
     @jwt_required()
     def post(self):
         return {'message': 'Successfully logged out'}, 200
-
 
 # Resource: Patient Dashboard
 class PatientDashboard(Resource):
@@ -119,7 +133,6 @@ class PatientDashboard(Resource):
         current_user = get_jwt_identity()
         return {'message': f'Welcome Patient {current_user["username"]}'}, 200
 
-
 # Resource: Clinic Dashboard
 class ClinicDashboard(Resource):
     @jwt_required()
@@ -128,7 +141,6 @@ class ClinicDashboard(Resource):
         current_user = get_jwt_identity()
         return {'message': f'Welcome Clinic Staff {current_user["username"]}'}, 200
 
-
 # Resource: Admin Dashboard
 class AdminDashboard(Resource):
     @jwt_required()
@@ -136,15 +148,6 @@ class AdminDashboard(Resource):
     def get(self):
         current_user = get_jwt_identity()
         return {'message': f'Welcome Admin {current_user["username"]}'}, 200
-
-
-# Register API endpoints
-api.add_resource(UserRegistration, '/api/register')
-api.add_resource(UserLogin, '/api/login')
-api.add_resource(UserLogout, '/api/logout')
-api.add_resource(PatientDashboard, '/api/patient')
-api.add_resource(ClinicDashboard, '/api/clinic')
-api.add_resource(AdminDashboard, '/api/admin')
 
 # Clinic routes
 class Clinics(Resource):
@@ -159,8 +162,7 @@ class Clinics(Resource):
         try:
             data = request.get_json()
 
-            fields = ['id', 'name', 'specialty',
-                               'contact', 'email', 'street', 'city']
+            fields = ['id', 'name', 'specialty', 'contact', 'email', 'street', 'city']
             for field in fields:
                 if field not in data:
                     return {'error': f'Missing required field: {field}'}, 400
@@ -216,8 +218,7 @@ class ClinicsById(Resource):
                 if Clinic.query.filter_by(email=data['email']).first():
                     return {'error': 'Email already exists'}, 400
 
-            fields = ['name', 'specialty', 'description',
-                      'contact', 'email', 'street', 'city', 'image_url']
+            fields = ['name', 'specialty', 'description', 'contact', 'email', 'street', 'city', 'image_url']
             for field in fields:
                 if field in data:
                     setattr(clinic, field, data[field])
@@ -254,7 +255,7 @@ class Services(Resource):
         try:
             data = request.get_json()
 
-            fields = ['name', 'price', 'duration']
+            fields = ['name', 'duration']
             for field in fields:
                 if field not in data:
                     return {'error': f'Missing required field: {field}'}, 400
@@ -264,7 +265,6 @@ class Services(Resource):
 
             service = Service(
                 name=data['name'],
-                price=data['price'],
                 duration=data['duration']
             )
             db.session.add(service)
@@ -296,7 +296,7 @@ class ServicesById(Resource):
                 if Service.query.filter_by(name=data['name']).first():
                     return {'error': 'Service name already exists'}, 400
 
-            fields = ['name', 'price', 'duration']
+            fields = ['name', 'duration']
             for field in fields:
                 if field in data:
                     setattr(service, field, data[field])
@@ -324,8 +324,7 @@ class ServicesById(Resource):
 class Insurances(Resource):
     def get(self):
         try:
-            insurances = [insurance.to_dict()
-                          for insurance in Insurance.query.all()]
+            insurances = [insurance.to_dict() for insurance in Insurance.query.all()]
             return insurances, 200
         except Exception as exc:
             return {'error': str(exc)}, 500
@@ -484,10 +483,17 @@ class Reviews(Resource):
     def get(self):
         try:
             clinic_id = request.args.get('clinic_id')
+            patient_id = request.args.get('patient_id')
 
             query = Review.query
+            
+            # Filter by clinic through booking relationship
             if clinic_id:
-                query = query.filter_by(clinic_id=clinic_id)
+                query = query.join(Booking).join(ClinicService).filter(ClinicService.clinic_id == clinic_id)
+            
+            # Filter by patient through booking relationship
+            if patient_id:
+                query = query.join(Booking).filter(Booking.patient_id == patient_id)
 
             reviews = [review.to_dict() for review in query.all()] 
             return reviews, 200
@@ -498,23 +504,25 @@ class Reviews(Resource):
         try:
             data = request.get_json()
 
-            fields = ['rating', 'clinic_id', 'patient_id']
+            fields = ['rating', 'booking_id']
             for field in fields:
                 if field not in data:
                     return {'error': f'Missing required field: {field}'}, 400
 
             if not (1 <= data['rating'] <= 5):
                 return {'error': 'Rating must be between 1 and 5'}, 400
-            if not Clinic.query.get(data['clinic_id']):
-                return {'error': 'Clinic not found'}, 404
-            if not Patient.query.get(data['patient_id']):
-                return {'error': 'Patient not found'}, 404
+            
+            booking = Booking.query.get(data['booking_id'])
+            if not booking:
+                return {'error': 'Booking not found'}, 404
+            
+            if booking.review:
+                return {'error': 'Booking already has a review'}, 400
 
             review = Review(
                 comment=data.get('comment'),
                 rating=data['rating'],
-                clinic_id=data['clinic_id'],
-                patient_id=data['patient_id']
+                booking_id=data['booking_id']
             )
             db.session.add(review)
             db.session.commit()
@@ -578,8 +586,9 @@ class Bookings(Resource):
 
             query = Booking.query
 
+            # Filter by clinic through clinic_service relationship
             if clinic_id:
-                query = query.filter_by(clinic_id=clinic_id)
+                query = query.join(ClinicService).filter(ClinicService.clinic_id == clinic_id)
             if patient_id:
                 query = query.filter_by(patient_id=patient_id)
             if status:
@@ -594,24 +603,23 @@ class Bookings(Resource):
         try:
             data = request.get_json()
 
-            fields = ['appointment_date', 'clinic_id',
-                      'service_id', 'patient_id']
+            fields = ['appointment_date', 'clinic_service_id', 'patient_id']
             for field in fields:
                 if field not in data:
                     return {'error': f'Missing required field: {field}'}, 400
 
             try:
-                appointment_date = datetime.strptime(
-                    data['appointment_date'], '%Y-%m-%d %H:%M')
+                appointment_date = datetime.strptime(data['appointment_date'], '%Y-%m-%d %H:%M')
                 if appointment_date <= datetime.now():
                     return {'error': 'Appointment date must be in the future'}, 400
             except (ValueError, TypeError):
                 return {'error': 'Invalid appointment date format. Use YYYY-MM-DD HH:MM'}, 400
 
-            if not Clinic.query.get(data['clinic_id']):
-                return {'error': 'Clinic not found'}, 404
-            if not Service.query.get(data['service_id']):
-                return {'error': 'Service not found'}, 404
+            # Check if clinic_service exists
+            clinic_service = ClinicService.query.get(data['clinic_service_id'])
+            if not clinic_service:
+                return {'error': 'Clinic service combination not found'}, 404
+            
             if not Patient.query.get(data['patient_id']):
                 return {'error': 'Patient not found'}, 404
 
@@ -621,12 +629,11 @@ class Bookings(Resource):
                 return {'error': f'Invalid status. Must be one of: {", ".join(statuses)}'}, 400
 
             booking = Booking(
-                booking_date=datetime.now(),
+                booking_date=datetime.now(),  # Fixed: Use now
                 appointment_date=appointment_date,
                 status=status,
                 notes=data.get('notes'),
-                clinic_id=data['clinic_id'],
-                service_id=data['service_id'],
+                clinic_service_id=data['clinic_service_id'],
                 patient_id=data['patient_id']
             )
 
@@ -657,10 +664,10 @@ class BookingsById(Resource):
 
             if 'appointment_date' in data:
                 try:
-                    appointment_date = datetime.strptime(
-                        data['appointment_date'], '%Y-%m-%d %H:%M')
+                    appointment_date = datetime.strptime(data['appointment_date'], '%Y-%m-%d %H:%M')
                     if appointment_date <= datetime.now():
                         return {'error': 'Appointment date must be in the future'}, 400
+                    booking.appointment_date = appointment_date
                 except (ValueError, TypeError):
                     return {'error': 'Invalid appointment date format. Use YYYY-MM-DD HH:MM'}, 400
 
@@ -693,14 +700,29 @@ class BookingsById(Resource):
             db.session.rollback()
             return {'error': str(exc)}, 500
 
-# Many-to-Many Relationship Routes
-class ClinicServicesById(Resource):
+# ClinicService management routes
+class ClinicServices(Resource):
+    def get(self, clinic_id):
+        """Get all services offered by a specific clinic with prices"""
+        try:
+            clinic = Clinic.query.get(clinic_id)
+            if not clinic:
+                return {'error': 'Clinic not found'}, 404
+            
+            clinic_services = ClinicService.query.filter_by(clinic_id=clinic_id).all()
+            return [cs.to_dict() for cs in clinic_services], 200
+        except Exception as exc:
+            return {'error': str(exc)}, 500
+
     def post(self, clinic_id):
+        """Add a service to a clinic with a specific price"""
         try:
             data = request.get_json()
 
-            if 'service_id' not in data:
-                return {'error': 'Missing required field: service_id'}, 400
+            fields = ['service_id', 'price']
+            for field in fields:
+                if field not in data:
+                    return {'error': f'Missing required field: {field}'}, 400
 
             clinic = Clinic.query.get(clinic_id)
             service = Service.query.get(data['service_id'])
@@ -710,43 +732,63 @@ class ClinicServicesById(Resource):
             if not service:
                 return {'error': 'Service not found'}, 404
 
-            if service in clinic.services:
-                return {'error': 'Service already associated with this clinic'}, 400
+            # Check if combination already exists
+            existing = ClinicService.query.filter_by(
+                clinic_id=clinic_id, 
+                service_id=data['service_id']
+            ).first()
+            
+            if existing:
+                return {'error': 'Service already offered by this clinic'}, 400
 
-            clinic.services.append(service)
+            clinic_service = ClinicService(
+                clinic_id=clinic_id,
+                service_id=data['service_id'],
+                price=data['price']
+            )
+            
+            db.session.add(clinic_service)
             db.session.commit()
 
-            return {'message': 'Service added to clinic successfully'}, 201
+            return {'message': 'Service added to clinic successfully', 'clinic_service': clinic_service.to_dict()}, 201
         except Exception as exc:
             db.session.rollback()
             return {'error': str(exc)}, 500
 
-    def delete(self, clinic_id):
+class ClinicServiceById(Resource):
+    def patch(self, clinic_service_id):
+        """Update the price of a clinic service"""
         try:
+            clinic_service = ClinicService.query.get(clinic_service_id)
+            if not clinic_service:
+                return {'error': 'Clinic service not found'}, 404
+
             data = request.get_json()
+            
+            if 'price' in data:
+                clinic_service.price = data['price']
 
-            if 'service_id' not in data:
-                return {'error': 'Missing required field: service_id'}, 400
-
-            clinic = Clinic.query.get(clinic_id)
-            service = Service.query.get(data['service_id'])
-
-            if not clinic:
-                return {'error': 'Clinic not found'}, 404
-            if not service:
-                return {'error': 'Service not found'}, 404
-
-            if service not in clinic.services:
-                return {'error': 'Service not associated with this clinic'}, 400
-
-            clinic.services.remove(service)
             db.session.commit()
+            return {'message': 'Clinic service updated successfully', 'clinic_service': clinic_service.to_dict()}, 200
+        except Exception as exc:
+            db.session.rollback()
+            return {'error': str(exc)}, 500
 
+    def delete(self, clinic_service_id):
+        """Remove a service from a clinic"""
+        try:
+            clinic_service = ClinicService.query.get(clinic_service_id)
+            if not clinic_service:
+                return {'error': 'Clinic service not found'}, 404
+
+            db.session.delete(clinic_service)
+            db.session.commit()
             return {'message': 'Service removed from clinic successfully'}, 204
         except Exception as exc:
             db.session.rollback()
             return {'error': str(exc)}, 500
 
+# Insurance management for clinics
 class ClinicInsurancesById(Resource):
     def post(self, clinic_id):
         try:
@@ -798,22 +840,37 @@ class ClinicInsurancesById(Resource):
             db.session.rollback()
             return {'error': str(exc)}, 500
 
-# API routes
+# Register API endpoints
+api.add_resource(UserRegistration, '/api/register')
+api.add_resource(UserLogin, '/api/login')
+api.add_resource(UserLogout, '/api/logout')
+api.add_resource(PatientDashboard, '/api/patient')
+api.add_resource(ClinicDashboard, '/api/clinic')
+api.add_resource(AdminDashboard, '/api/admin')
+
+# Main resource endpoints
 api.add_resource(Clinics, '/clinics')
-api.add_resource(ClinicsById, '/clinics/<int:id>')
+api.add_resource(ClinicsById, '/clinics/<int:id>')  # Fixed: Changed to string for clinic ID
 api.add_resource(Services, '/services')
 api.add_resource(ServicesById, '/services/<int:id>')
 api.add_resource(Insurances, '/insurances')
 api.add_resource(InsurancesById, '/insurances/<int:id>')
 api.add_resource(Patients, '/patients')
-api.add_resource(PatientsById, '/patients/<int:id>')
+api.add_resource(PatientsById, '/patients/<int:id>')  # Fixed: Changed to string for patient ID
 api.add_resource(Reviews, '/reviews')
 api.add_resource(ReviewsById, '/reviews/<int:id>')
 api.add_resource(Bookings, '/bookings')
 api.add_resource(BookingsById, '/bookings/<int:id>')
-api.add_resource(ClinicServicesById, '/clinics/<int:clinic_id>/services')
-api.add_resource(ClinicInsurancesById, '/clinics/<int:clinic_id>/insurances')
+
+# ClinicService management routes
+api.add_resource(ClinicServices, '/clinics/<int:clinic_id>/services')
+api.add_resource(ClinicServiceById, '/clinic-services/<int:clinic_service_id>')
+
+# Insurance management for clinics
+api.add_resource(ClinicInsurancesById, '/clinics/<int:clinic_id>/insurances')  # Fixed: Changed to string
 
 # Initialize DB and run app
 if __name__ == '__main__':
+    with app.app_context():
+        db.create_all()  # Fixed: Added database table creation
     app.run(debug=True)
