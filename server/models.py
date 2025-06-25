@@ -6,22 +6,34 @@ from flask_jwt_extended import create_access_token
 
 db = SQLAlchemy()
 
-
-# Join table for clinics and services many-to-many relationship
-clinic_service = db.Table(
-    'clinic_service',
-    db.Column('clinic_id', db.Integer, db.ForeignKey('clinics.id'), primary_key=True),
-    db.Column('service_id', db.Integer, db.ForeignKey('services.id'), primary_key=True),
-    db.Column('created_at', db.DateTime, default=datetime.now)
-)
-
-# Join table for clinics and insurance many-to-many relationship
+# Join Table for Clinics and Insurances
 clinic_insurance = db.Table(
     'clinic_insurance',
     db.Column('clinic_id', db.Integer, db.ForeignKey('clinics.id'), primary_key=True),
     db.Column('insurance_id', db.Integer, db.ForeignKey('insurances.id'), primary_key=True),
     db.Column('created_at', db.DateTime, default=datetime.now)
 )
+
+#Association Model for Clinic and Service
+class ClinicService(db.Model, SerializerMixin):
+    __tablename__ = 'clinic_service'
+    
+    serialize_rules = (
+        '-clinic.service_associations',
+        '-service.clinic_associations',
+        '-bookings.clinic_service',
+        'clinic',  # Include clinic in serialization
+        'service',  # Include service in serialization
+    )
+    
+    id = db.Column(db.Integer, primary_key=True)
+    clinic_id = db.Column(db.Integer, db.ForeignKey('clinics.id'), nullable=False)
+    service_id = db.Column(db.Integer, db.ForeignKey('services.id'), nullable=False)
+    price = db.Column(db.Integer, nullable=False)
+    
+    clinic = db.relationship('Clinic', back_populates='service_associations')
+    service = db.relationship('Service', back_populates='clinic_associations')
+    bookings = db.relationship('Booking', back_populates='clinic_service')
 
 class Clinic(db.Model, SerializerMixin):
     __tablename__ = 'clinics'
@@ -30,7 +42,7 @@ class Clinic(db.Model, SerializerMixin):
         '-reviews.clinic',
         '-insurance_accepted.clinics',
         '-bookings.clinic',
-        '-services.clinics',
+        '-service_associations.clinic',
     )
 
     id = db.Column(db.String(50), primary_key=True)
@@ -44,20 +56,30 @@ class Clinic(db.Model, SerializerMixin):
     image_url = db.Column(db.String(255))
 
     # Relationships
-    services = db.relationship(
-        'Service', 
-        secondary=clinic_service,
-        back_populates='clinics',
-        lazy='dynamic'
+    service_associations = db.relationship(
+        'ClinicService', 
+        back_populates='clinic',
+        cascade='all, delete-orphan'
     )
-    reviews = db.relationship('Review', back_populates='clinic', cascade='all, delete-orphan')
+    reviews = db.relationship(
+        'Review', 
+        back_populates='clinic',
+        cascade='all, delete-orphan'
+    )
     insurance_accepted = db.relationship(
         'Insurance',
         secondary=clinic_insurance,
-        back_populates='clinics',
-        lazy='dynamic'
+        back_populates='clinics'
     )
-    bookings = db.relationship('Booking', back_populates='clinic', cascade='all, delete-orphan')
+    bookings = db.relationship(
+        'Booking',
+        back_populates='clinic',
+        cascade='all, delete-orphan'
+    )
+
+    @property
+    def services(self):
+        return [assoc.service for assoc in self.service_associations]
 
     def __repr__(self):
         return f'<Clinic {self.name} ({self.specialty}) in {self.city}>'
@@ -66,26 +88,32 @@ class Service(db.Model, SerializerMixin):
     __tablename__ = 'services'
 
     serialize_rules = (
-        '-clinics.services',
+        '-clinic_associations.service',
         '-bookings.service',
     )
 
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False, unique=True)
-    price = db.Column(db.Integer, nullable=False)
     duration = db.Column(db.Integer, nullable=False)  
 
     # Relationships
-    clinics = db.relationship(
-        'Clinic',
-        secondary=clinic_service,
-        back_populates='services',
-        lazy='dynamic'
+    clinic_associations = db.relationship(
+        'ClinicService',
+        back_populates='service',
+        cascade='all, delete-orphan'
     )
-    bookings = db.relationship('Booking', back_populates='service', cascade='all, delete-orphan')
+    bookings = db.relationship(
+        'Booking',
+        back_populates='service',
+        cascade='all, delete-orphan'
+    )
+
+    @property
+    def clinics(self):
+        return [assoc.clinic for assoc in self.clinic_associations]
 
     def __repr__(self):
-        return f'<Service {self.name} (KSh {self.price})>'
+        return f'<Service {self.name}>'
 
 class Insurance(db.Model, SerializerMixin):
     __tablename__ = 'insurances'
@@ -98,14 +126,11 @@ class Insurance(db.Model, SerializerMixin):
     clinics = db.relationship(
         'Clinic',
         secondary=clinic_insurance,
-        back_populates='insurance_accepted',
-        lazy='dynamic'
+        back_populates='insurance_accepted'
     )
 
     def __repr__(self):
         return f'<Insurance {self.name}>'
-
-
 
 class Patient(db.Model, SerializerMixin):
     __tablename__ = 'patients'
@@ -121,8 +146,16 @@ class Patient(db.Model, SerializerMixin):
     email = db.Column(db.String(100), unique=True, nullable=False)
     date_joined = db.Column(db.DateTime, default=datetime.now)
 
-    reviews = db.relationship('Review', back_populates='patient', cascade='all, delete-orphan')
-    bookings = db.relationship('Booking', back_populates='patient', cascade='all, delete-orphan')
+    reviews = db.relationship(
+        'Review',
+        back_populates='patient',
+        cascade='all, delete-orphan'
+    )
+    bookings = db.relationship(
+        'Booking',
+        back_populates='patient',
+        cascade='all, delete-orphan'
+    )
 
     def __repr__(self):
         return f'<Patient {self.name}>'
@@ -131,57 +164,81 @@ class Review(db.Model, SerializerMixin):
     __tablename__ = 'reviews'
 
     serialize_rules = (
-        '-clinic.reviews',
-        '-patient.reviews',
+        '-booking.review',
+        'booking.clinic_service.clinic',  # Include clinic through booking
+        'booking.patient',  # Include patient through booking
     )
 
     id = db.Column(db.Integer, primary_key=True)
     comment = db.Column(db.String)
     rating = db.Column(db.Integer, nullable=False)
     date = db.Column(db.DateTime, default=datetime.now)
-    clinic_id = db.Column(db.Integer, db.ForeignKey('clinics.id'))
-    patient_id = db.Column(db.Integer, db.ForeignKey('patients.id'))
+    booking_id = db.Column(db.Integer, db.ForeignKey('bookings.id'), unique=True)
 
-    clinic = db.relationship('Clinic', back_populates='reviews')
-    patient = db.relationship('Patient', back_populates='reviews')
+    booking = db.relationship('Booking', back_populates='review')
+
+    @property
+    def clinic(self):
+        return self.booking.clinic_service.clinic if self.booking else None
+
+    @property
+    def patient(self):
+        return self.booking.patient if self.booking else None
 
     def __repr__(self):
-        return f'<Review {self.rating} stars by {self.patient.name}>'
+        return f'<Review {self.rating} stars for booking {self.booking_id}>'
 
 class Booking(db.Model, SerializerMixin):
     __tablename__ = 'bookings'
 
     serialize_rules = (
-        '-clinic.bookings',
-        '-service.bookings',
         '-patient.bookings',
+        '-clinic_service.bookings',
+        '-review.booking',
+        'clinic_service.clinic',  # Include clinic through clinic_service
+        'clinic_service.service',  # Include service through clinic_service
+        'patient',  # Include patient details
     )
 
     id = db.Column(db.Integer, primary_key=True)
     booking_date = db.Column(db.DateTime, nullable=False)
     appointment_date = db.Column(db.DateTime, nullable=False)
-    status = db.Column(db.String(20), default='pending')  # pending, confirmed, cancelled, completed
+    status = db.Column(db.String(20), default='pending')
     notes = db.Column(db.String)
-    clinic_id = db.Column(db.Integer, db.ForeignKey('clinics.id'))
-    service_id = db.Column(db.Integer, db.ForeignKey('services.id'))
     patient_id = db.Column(db.Integer, db.ForeignKey('patients.id'))
+    clinic_service_id = db.Column(db.Integer, db.ForeignKey('clinic_service.id'))
 
-    clinic = db.relationship('Clinic', back_populates='bookings')
-    service = db.relationship('Service', back_populates='bookings')
     patient = db.relationship('Patient', back_populates='bookings')
+    clinic_service = db.relationship(
+        'ClinicService', 
+        back_populates='bookings',
+        lazy='joined'  # Eager load by default
+    )
+    review = db.relationship(
+        'Review',
+        back_populates='booking',
+        uselist=False,
+        cascade='all, delete-orphan'
+    )
+
+    @property
+    def clinic(self):
+        return self.clinic_service.clinic if self.clinic_service else None
+
+    @property
+    def service(self):
+        return self.clinic_service.service if self.clinic_service else None
 
     def __repr__(self):
-        return f'<Booking for {self.patient.name} at {self.clinic.name}>'
-
-
+        return f'<Booking #{self.id} for {self.patient.name}>'
 
 class User(db.Model):
-    __tablename__ = 'user'
+    __tablename__ = 'users'
 
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     password_hash = db.Column(db.String(128), nullable=False)
-    role = db.Column(db.String(20), nullable=False, default='patient')  # 'admin', 'clinic', or 'patient'
+    role = db.Column(db.String(20), nullable=False, default='patient')
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password).decode('utf-8')
