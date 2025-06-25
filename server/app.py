@@ -850,13 +850,13 @@ api.add_resource(AdminDashboard, '/api/admin')
 
 # Main resource endpoints
 api.add_resource(Clinics, '/clinics')
-api.add_resource(ClinicsById, '/clinics/<int:id>')  # Fixed: Changed to string for clinic ID
+api.add_resource(ClinicsById, '/clinics/<int:id>') 
 api.add_resource(Services, '/services')
 api.add_resource(ServicesById, '/services/<int:id>')
 api.add_resource(Insurances, '/insurances')
 api.add_resource(InsurancesById, '/insurances/<int:id>')
 api.add_resource(Patients, '/patients')
-api.add_resource(PatientsById, '/patients/<int:id>')  # Fixed: Changed to string for patient ID
+api.add_resource(PatientsById, '/patients/<int:id>') 
 api.add_resource(Reviews, '/reviews')
 api.add_resource(ReviewsById, '/reviews/<int:id>')
 api.add_resource(Bookings, '/bookings')
@@ -867,7 +867,7 @@ api.add_resource(ClinicServices, '/clinics/<int:clinic_id>/services')
 api.add_resource(ClinicServiceById, '/clinic-services/<int:clinic_service_id>')
 
 # Insurance management for clinics
-api.add_resource(ClinicInsurancesById, '/clinics/<int:clinic_id>/insurances')  # Fixed: Changed to string
+api.add_resource(ClinicInsurancesById, '/clinics/<int:clinic_id>/insurances') 
 
 # Initialize DB and run app
 if __name__ == '__main__':
