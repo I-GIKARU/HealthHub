@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 
 from app import app
-from models import db, Clinic, Service, Insurance, Patient, Review, Booking, ClinicService
-from datetime import datetime, timedelta
+from models import db, Clinic, Service, Insurance, Patient, Review, Booking, ClinicService, User
+from datetime import datetime
 from faker import Faker
 import random
 
@@ -23,7 +23,7 @@ def services():
 
 def insurances():
     insurances = [
-        Insurance(name='sHIF'),
+        Insurance(name='NHIF'),
         Insurance(name='Jubilee Insurance'),
         Insurance(name='AAR Insurance'),
         Insurance(name='SHA'),
@@ -40,10 +40,13 @@ def clinics(services, insurances):
             name=fake.company(),
             specialty=random.choice(['Dental', 'General', 'Pediatrics', 'Cardiology']),
             description=fake.paragraph(),
-            # image=image.link  
+            contact=fake.unique.phone_number(),
+            email=fake.unique.email(),
+            street=fake.street_address(),
+            city=fake.city(),
+            image_url=fake.image_url()
         )
 
-        # Create service associations (ClinicService)
         selected_services = random.sample(services, k=2)
         for service in selected_services:
             assoc = ClinicService(
@@ -52,7 +55,6 @@ def clinics(services, insurances):
             )
             clinic.service_associations.append(assoc)
 
-        # Add insurance
         for insurance in random.sample(insurances, k=2):
             clinic.insurance_accepted.append(insurance)
 
@@ -64,10 +66,11 @@ def clinics(services, insurances):
 
 def patients():
     patients = []
-    for patient in range(10):
+    for _ in range(10):
         patient = Patient(
             name=fake.name(),
-            contact=fake.phone_number()
+            contact=fake.phone_number(),
+            email=fake.email()
         )
         patients.append(patient)
     db.session.add_all(patients)
@@ -76,15 +79,17 @@ def patients():
 
 def bookings(clinics, patients):
     bookings = []
-    for booking in range(10):
+    for _ in range(10):
         clinic = random.choice(clinics)
-
         clinic_service = random.choice(clinic.service_associations)
         patient = random.choice(patients)
+        appointment_date = datetime.utcnow() 
 
         booking = Booking(
             booking_date=datetime.utcnow(),
+            appointment_date=appointment_date,
             status=random.choice(['pending', 'confirmed', 'cancelled', 'completed']),
+            notes=fake.sentence(),
             clinic_service=clinic_service,
             patient=patient
         )
@@ -99,7 +104,7 @@ def reviews(bookings):
     for booking in sampled_bookings:
         review = Review(
             comment=fake.sentence(),
-            rating=random.randint(1, 6),
+            rating=random.randint(1, 5),  
             booking=booking
         )
         reviews.append(review)
@@ -107,8 +112,19 @@ def reviews(bookings):
     db.session.commit()
     return reviews
 
+def users():
+    users = [
+        User(username='admin_user', role='admin'),
+        User(username='clinic_user', role='clinic'),
+        User(username='patient_user', role='patient'),
+    ]
+    for user in users:
+        user.set_password('admin123')
+    db.session.add_all(users)
+    db.session.commit()
+
 with app.app_context():
-    # Clear existing records
+   
     Booking.query.delete()
     Review.query.delete()
     Patient.query.delete()
@@ -116,11 +132,14 @@ with app.app_context():
     Clinic.query.delete()
     Service.query.delete()
     Insurance.query.delete()
+    User.query.delete()
 
-    # Create fresh data
+   
     services = services()
     insurances = insurances()
     clinics = clinics(services, insurances)
     patients = patients()
     bookings = bookings(clinics, patients)
     reviews(bookings)
+    users()
+
