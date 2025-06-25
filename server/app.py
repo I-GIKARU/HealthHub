@@ -1,3 +1,5 @@
+from flask_migrate import Migrate
+
 from models import db, Clinic, Patient, Insurance, Service, User, Booking, Review
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -17,7 +19,7 @@ app.config.from_object(__name__)
 # Configuration
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'super-secret-key')
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL',
-                                                       f'sqlite:///{os.path.join(os.path.abspath(os.path.dirname(__file__)), "app.db")}')
+                                                       f'sqlite:///{os.path.join(os.path.abspath(os.path.dirname(__file__)), "healthhub.db")}')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['JWT_SECRET_KEY'] = os.environ.get('JWT_SECRET_KEY', 'super-jwt-secret')
 
@@ -35,6 +37,7 @@ CORS(app, resources={
 db.init_app(app)
 jwt = JWTManager(app)
 api = Api(app)
+migrate = Migrate(app, db)
 
 
 # Role-based access decorator
@@ -813,12 +816,4 @@ api.add_resource(ClinicInsurancesById, '/clinics/<int:clinic_id>/insurances')
 
 # Initialize DB and run app
 if __name__ == '__main__':
-    with app.app_context():
-        db.create_all()
-        # Create initial admin user if none exists
-        if not User.query.filter_by(role='admin').first():
-            admin = User(username='admin', role='admin')
-            admin.set_password('admin123')
-            db.session.add(admin)
-            db.session.commit()
     app.run(debug=True)

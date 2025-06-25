@@ -1,0 +1,197 @@
+@baseUrl = http://localhost:5000
+@contentType = application/json
+
+### Authentication
+
+# Register a new user
+POST {{baseUrl}}/api/register HTTP/1.1
+Content-Type: {{contentType}}
+
+{
+  "username": "testuser",
+  "password": "testpass123",
+  "role": "patient"
+}
+
+###
+
+# Login and get JWT token
+# @name login
+POST {{baseUrl}}/api/login HTTP/1.1
+Content-Type: {{contentType}}
+
+{
+  "username": "testuser",
+  "password": "testpass123"
+}
+
+###
+
+@authToken = {{login.response.body.$.access_token}}
+
+### Clinics
+
+# Get all clinics
+GET {{baseUrl}}/clinics
+Authorization: Bearer {{authToken}}
+
+###
+
+# Get a single clinic
+GET {{baseUrl}}/clinics/1
+Authorization: Bearer {{authToken}}
+
+###
+
+# Create a new clinic
+POST {{baseUrl}}/clinics
+Content-Type: {{contentType}}
+Authorization: Bearer {{authToken}}
+
+{
+  "name": "City Medical Center",
+  "specialty": "General Medicine",
+  "description": "Comprehensive healthcare services",
+  "contact": "+1234567890",
+  "email": "info@citymedical.com",
+  "street": "123 Medical Drive",
+  "city": "Nairobi",
+  "image_url": "https://example.com/medical-center.jpg"
+}
+
+###
+
+# Update a clinic
+PATCH {{baseUrl}}/clinics/1
+Content-Type: {{contentType}}
+Authorization: Bearer {{authToken}}
+
+{
+  "description": "Updated description with more details"
+}
+
+###
+
+# Delete a clinic
+DELETE {{baseUrl}}/clinics/1
+Authorization: Bearer {{authToken}}
+
+### Services
+
+# Get all services
+GET {{baseUrl}}/services
+Authorization: Bearer {{authToken}}
+
+###
+
+# Create a new service
+POST {{baseUrl}}/services
+Content-Type: {{contentType}}
+Authorization: Bearer {{authToken}}
+
+{
+  "name": "Dental Checkup",
+  "price": 5000,
+  "duration": 30
+}
+
+### Insurances
+
+# Get all insurances
+GET {{baseUrl}}/insurances
+Authorization: Bearer {{authToken}}
+
+###
+
+# Create a new insurance
+POST {{baseUrl}}/insurances
+Content-Type: {{contentType}}
+Authorization: Bearer {{authToken}}
+
+{
+  "name": "Jubilee Insurance"
+}
+
+### Patients
+
+# Get all patients
+GET {{baseUrl}}/patients
+Authorization: Bearer {{authToken}}
+
+###
+
+# Create a new patient
+POST {{baseUrl}}/patients
+Content-Type: {{contentType}}
+Authorization: Bearer {{authToken}}
+
+{
+  "name": "John Doe",
+  "contact": "+254712345678",
+  "email": "john.doe@example.com"
+}
+
+### Reviews
+
+# Get all reviews
+GET {{baseUrl}}/reviews
+Authorization: Bearer {{authToken}}
+
+###
+
+# Create a new review
+POST {{baseUrl}}/reviews
+Content-Type: {{contentType}}
+Authorization: Bearer {{authToken}}
+
+{
+  "comment": "Great service!",
+  "rating": 5,
+  "clinic_id": 1,
+  "patient_id": 1
+}
+
+### Bookings
+
+# Get all bookings
+GET {{baseUrl}}/bookings
+Authorization: Bearer {{authToken}}
+
+###
+
+# Create a new booking
+POST {{baseUrl}}/bookings
+Content-Type: {{contentType}}
+Authorization: Bearer {{authToken}}
+
+{
+  "booking_date": "2025-06-25T10:00:00",
+  "appointment_date": "2025-06-26T14:30:00",
+  "status": "confirmed",
+  "notes": "Regular checkup",
+  "clinic_id": 1,
+  "service_id": 1,
+  "patient_id": 1
+}
+
+### Clinic Services
+
+# Add a service to a clinic
+POST {{baseUrl}}/clinics/C001/services
+Content-Type: {{contentType}}
+Authorization: Bearer {{authToken}}
+
+{
+  "service_id": 1
+}
+
+### Clinic Insurances
+
+# Add an insurance to a clinic
+POST {{baseUrl}}/clinics/1/insurances
+Content-Type: {{contentType}}
+Authorization: Bearer {{authToken}}
+
+{
+  "insurance_id": 1
+}
