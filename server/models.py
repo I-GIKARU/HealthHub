@@ -203,7 +203,7 @@ class Review(db.Model, SerializerMixin):
     comment = db.Column(db.Text)
     rating = db.Column(db.Integer, nullable=False)
     date = db.Column(db.DateTime, default=datetime.now)
-    booking_id = db.Column(db.Integer, db.ForeignKey('bookings.id'), unique=True, nullable=False)
+    booking_id = db.Column(db.Integer, db.ForeignKey('bookings.id'), unique=True)
 
     booking = db.relationship('Booking', back_populates='review')
 
