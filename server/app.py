@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
+import traceback
+
 from flask_migrate import Migrate
 from models import db, Clinic, Patient, Insurance, Service, User, Booking, Review, ClinicService
-from flask import Flask, request
+from flask import Flask, request, make_response, jsonify
 from flask_cors import CORS
 from flask_restful import Api, Resource
 from flask_jwt_extended import (
     JWTManager, create_access_token, jwt_required,
-    get_jwt_identity, verify_jwt_in_request
+    get_jwt_identity, verify_jwt_in_request, set_access_cookies, unset_jwt_cookies
 )
 from functools import wraps
 from datetime import datetime
@@ -21,24 +23,35 @@ app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'super-secret-key')
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL',
                                                        f'sqlite:///{os.path.join(os.path.abspath(os.path.dirname(__file__)), "healthhub.db")}')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['JWT_SECRET_KEY'] = os.environ.get('JWT_SECRET_KEY', 'super-jwt-secret')
 app.config['JWT_ACCESS_TOKEN_EXPIRES'] = False
+# Update your Flask JWT configuration
+app.config['JWT_TOKEN_LOCATION'] = ['cookies']
+app.config['JWT_ACCESS_COOKIE_NAME'] = 'access_token_cookie'
+app.config['JWT_COOKIE_CSRF_PROTECT'] = False  # Disable for development
+app.config['JWT_COOKIE_SAMESITE'] = 'None'
+app.config['JWT_COOKIE_SECURE'] = True  # <-- Set this to True'
+app.config['JWT_SESSION_COOKIE'] = False  # Persistent cookie
+app.config['JWT_COOKIE_DOMAIN'] = None  # Let browser handle domain
 
-# Enable CORS
-CORS(app, resources={
-    r"/api/*": {
-        "origins": ["*"],
-        "methods": ["GET", "POST", "PUT", "DELETE", "PATCH"],
-        "allow_headers": ["Content-Type", "Authorization"],
-        "supports_credentials": True
+# Update CORS configuration
+CORS(app,
+    resources={
+        r"/api/*": {
+            "origins": ["http://localhost:5173"],
+            "supports_credentials": True,
+            "expose_headers": ["Content-Type"],
+            "allow_headers": ["Content-Type"],
+            "methods": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
+        }
     }
-})
+)
 
 # Initialize extensions
 db.init_app(app)
 jwt = JWTManager(app)
 api = Api(app)
 migrate = Migrate(app, db)
+
 
 # Role-based access decorator
 def role_required(role):
@@ -47,11 +60,14 @@ def role_required(role):
         def decorator(*args, **kwargs):
             verify_jwt_in_request()
             identity = get_jwt_identity()
-            if identity.get('role') != role:
+            if not isinstance(identity, dict) or identity.get('role') != role:
                 return {'message': f'{role.capitalize()} role required!'}, 403
             return fn(*args, **kwargs)
+
         return decorator
+
     return wrapper
+
 
 # Admin or specific role required decorator
 def admin_or_role_required(allowed_roles):
@@ -60,12 +76,20 @@ def admin_or_role_required(allowed_roles):
         def decorator(*args, **kwargs):
             verify_jwt_in_request()
             identity = get_jwt_identity()
+
+            if not isinstance(identity, dict):
+                return {'error': 'Invalid identity format'}, 400
+
             user_role = identity.get('role')
             if user_role not in allowed_roles and user_role != 'admin':
                 return {'message': 'Insufficient permissions'}, 403
+
             return fn(*args, **kwargs)
+
         return decorator
+
     return wrapper
+
 
 # Resource: User Registration
 class UserRegistration(Resource):
@@ -84,12 +108,64 @@ class UserRegistration(Resource):
             )
             user.set_password(data['password'])
             db.session.add(user)
-            db.session.commit()
+            db.session.flush()
 
+            if user.role == 'patient':
+                required_fields = ['name', 'email', 'contact']
+                for f in required_fields:
+                    if f not in data:
+                        db.session.rollback()
+                        return {'error': f'Missing patient field: {f}'}, 400
+
+                if Patient.query.filter_by(contact=data['contact']).first():
+                    db.session.rollback()
+                    return {'error': 'Contact number already exists'}, 400
+                if Patient.query.filter_by(email=data['email']).first():
+                    db.session.rollback()
+                    return {'error': 'Email already exists'}, 400
+
+                patient = Patient(
+                    name=data['name'],
+                    email=data['email'],
+                    contact=data['contact'],
+                    user_id=user.id
+                )
+                db.session.add(patient)
+
+            elif user.role == 'clinic':
+                required_fields = ['name', 'specialty', 'contact', 'email', 'street', 'city']
+                for f in required_fields:
+                    if f not in data:
+                        db.session.rollback()
+                        return {'error': f'Missing clinic field: {f}'}, 400
+
+                if Clinic.query.filter_by(contact=data['contact']).first():
+                    db.session.rollback()
+                    return {'error': 'Contact number already exists'}, 400
+                if Clinic.query.filter_by(email=data['email']).first():
+                    db.session.rollback()
+                    return {'error': 'Email already exists'}, 400
+
+                clinic = Clinic(
+                    name=data['name'],
+                    specialty=data['specialty'],
+                    description=data.get('description'),
+                    contact=data['contact'],
+                    email=data['email'],
+                    street=data['street'],
+                    city=data['city'],
+                    image_url=data.get('image_url'),
+                    user_id=user.id
+                )
+                db.session.add(clinic)
+
+            db.session.commit()
             return {'message': 'User created successfully'}, 201
+
         except Exception as exc:
             db.session.rollback()
             return {'error': str(exc)}, 500
+
 
 # Resource: User Login
 class UserLogin(Resource):
@@ -103,74 +179,189 @@ class UserLogin(Resource):
             if not user or not user.check_password(data['password']):
                 return {'message': 'Invalid credentials'}, 401
 
-            token = create_access_token(identity={
+            identity = {
                 'id': user.id,
                 'username': user.username,
                 'role': user.role
-            })
+            }
+            access_token = create_access_token(identity=identity)
 
-            return {
-                'access_token': token,
-                'user': {
-                    'id': user.id,
-                    'username': user.username,
-                    'role': user.role
-                }
-            }, 200
+            response = make_response(jsonify({
+                'user': identity,
+                'message': 'Login successful'
+            }), 200)
+            set_access_cookies(response, access_token)
+            return response
+
         except Exception as exc:
             return {'error': str(exc)}, 500
 
-# Resource: User Profile (for getting current user info)
+
+class CurrentUser(Resource):
+    def get(self):
+        try:
+            verify_jwt_in_request(optional=True)
+            identity = get_jwt_identity()
+            if identity:
+                return jsonify({"user": identity})
+            return jsonify({"user": None})
+        except Exception as e:
+            return {"message": "Error verifying user"}, 500
+
+
+class UserLogout(Resource):
+    def post(self):
+        response = make_response(jsonify({'message': 'Logged out successfully'}), 200)
+        unset_jwt_cookies(response)
+        return response
+
+
 class UserProfile(Resource):
     @jwt_required()
     def get(self):
+        current_user = get_jwt_identity()
+        user = User.query.get(current_user['id'])
+        if not user:
+            return {'message': 'User not found'}, 404
+
+        profile_data = {
+            'id': user.id,
+            'username': user.username,
+            'role': user.role
+        }
+
+        if user.role == 'patient':
+            patient = Patient.query.filter_by(user_id=user.id).first()
+            if patient:
+                profile_data.update({
+                    'name': patient.name,
+                    'email': patient.email,
+                    'contact': patient.contact
+                })
+
+        elif user.role == 'clinic':
+            clinic = Clinic.query.filter_by(user_id=user.id).first()
+            if clinic:
+                profile_data.update({
+                    'name': clinic.name,
+                    'email': clinic.email,
+                    'contact': clinic.contact,
+                    'specialty': clinic.specialty,
+                    'description': clinic.description,
+                    'street': clinic.street,
+                    'city': clinic.city,
+                    'image_url': clinic.image_url,
+                })
+
+        return {'user': profile_data}, 200
+
+    @jwt_required()
+    def put(self):
+        current_user = get_jwt_identity()
+        user = User.query.get(current_user['id'])
+        if not user:
+            return {'message': 'User not found'}, 404
+
+        data = request.get_json()
+
         try:
-            current_user = get_jwt_identity()
-            user = User.query.get(current_user['id'])
-            if not user:
-                return {'message': 'User not found'}, 404
-            
-            return {
-                'user': {
-                    'id': user.id,
-                    'username': user.username,
-                    'role': user.role
-                }
-            }, 200
+            if user.role == 'patient':
+                patient = Patient.query.filter_by(user_id=user.id).first()
+                if not patient:
+                    return {'error': 'Patient profile not found'}, 404
+
+                if 'email' in data and data['email'] != patient.email:
+                    if Patient.query.filter_by(email=data['email']).first():
+                        return {'error': 'Email already exists'}, 400
+                    patient.email = data['email']
+
+                if 'contact' in data and data['contact'] != patient.contact:
+                    if Patient.query.filter_by(contact=data['contact']).first():
+                        return {'error': 'Contact already exists'}, 400
+                    patient.contact = data['contact']
+
+                patient.name = data.get('name', patient.name)
+
+            elif user.role == 'clinic':
+                clinic = Clinic.query.filter_by(user_id=user.id).first()
+                if not clinic:
+                    return {'error': 'Clinic profile not found'}, 404
+
+                if 'email' in data and data['email'] != clinic.email:
+                    if Clinic.query.filter_by(email=data['email']).first():
+                        return {'error': 'Email already exists'}, 400
+                    clinic.email = data['email']
+
+                if 'contact' in data and data['contact'] != clinic.contact:
+                    if Clinic.query.filter_by(contact=data['contact']).first():
+                        return {'error': 'Contact already exists'}, 400
+                    clinic.contact = data['contact']
+
+                clinic.name = data.get('name', clinic.name)
+                clinic.specialty = data.get('specialty', clinic.specialty)
+                clinic.description = data.get('description', clinic.description)
+                clinic.street = data.get('street', clinic.street)
+                clinic.city = data.get('city', clinic.city)
+                clinic.image_url = data.get('image_url', clinic.image_url)
+
+            db.session.commit()
+            return {'message': 'Profile updated successfully'}, 200
+
         except Exception as exc:
+            db.session.rollback()
             return {'error': str(exc)}, 500
 
-# Resource: User Logout
-class UserLogout(Resource):
-    @jwt_required()
-    def post(self):
-        return {'message': 'Successfully logged out'}, 200
 
-# Resource: Patient Dashboard
+# Dashboard Resources
 class PatientDashboard(Resource):
     @jwt_required()
     @role_required('patient')
     def get(self):
         current_user = get_jwt_identity()
-        return {'message': f'Welcome Patient {current_user["username"]}'}, 200
+        patient = Patient.query.filter_by(user_id=current_user['id']).first()
+        if not patient:
+            return {'error': 'Patient profile not found'}, 404
 
-# Resource: Clinic Dashboard
+        bookings = Booking.query.filter_by(patient_id=patient.id).all()
+        return {
+            'patient': patient.to_dict(),
+            'bookings': [b.to_dict() for b in bookings]
+        }, 200
+
+
 class ClinicDashboard(Resource):
     @jwt_required()
     @role_required('clinic')
     def get(self):
         current_user = get_jwt_identity()
-        return {'message': f'Welcome Clinic Staff {current_user["username"]}'}, 200
+        clinic = Clinic.query.filter_by(user_id=current_user['id']).first()
+        if not clinic:
+            return {'error': 'Clinic profile not found'}, 404
 
-# Resource: Admin Dashboard
+        bookings = []
+        for service in clinic.service_associations:
+            bookings.extend(service.bookings)
+
+        return {
+            'clinic': clinic.to_dict(),
+            'bookings': [b.to_dict() for b in bookings]
+        }, 200
+
+
 class AdminDashboard(Resource):
     @jwt_required()
     @role_required('admin')
     def get(self):
-        current_user = get_jwt_identity()
-        return {'message': f'Welcome Admin {current_user["username"]}'}, 200
+        stats = {
+            'users': User.query.count(),
+            'clinics': Clinic.query.count(),
+            'patients': Patient.query.count(),
+            'bookings': Booking.query.count()
+        }
+        return {'stats': stats}, 200
 
-# Clinic routes
+
+# Clinic resources
 class Clinics(Resource):
     def get(self):
         try:
@@ -184,21 +375,17 @@ class Clinics(Resource):
     def post(self):
         try:
             data = request.get_json()
+            required_fields = ['name', 'specialty', 'contact', 'email', 'street', 'city']
+            for field in required_fields:
+                if field not in data or not data[field]:
+                    return {'error': f'Missing or empty required field: {field}'}, 400
 
-            fields = ['id', 'name', 'specialty', 'contact', 'email', 'street', 'city']
-            for field in fields:
-                if field not in data:
-                    return {'error': f'Missing required field: {field}'}, 400
-
-            if Clinic.query.get(data['id']):
-                return {'error': 'Clinic ID already exists'}, 400
             if Clinic.query.filter_by(contact=data['contact']).first():
                 return {'error': 'Contact number already exists'}, 400
             if Clinic.query.filter_by(email=data['email']).first():
                 return {'error': 'Email already exists'}, 400
 
             clinic = Clinic(
-                id=data['id'],
                 name=data['name'],
                 specialty=data['specialty'],
                 description=data.get('description'),
@@ -214,6 +401,7 @@ class Clinics(Resource):
         except Exception as exc:
             db.session.rollback()
             return {'error': str(exc)}, 500
+
 
 class ClinicsById(Resource):
     def get(self, id):
@@ -269,7 +457,8 @@ class ClinicsById(Resource):
             db.session.rollback()
             return {'error': str(exc)}, 500
 
-# Service routes
+
+# Service resources
 class Services(Resource):
     def get(self):
         try:
@@ -283,7 +472,6 @@ class Services(Resource):
     def post(self):
         try:
             data = request.get_json()
-
             fields = ['name', 'duration']
             for field in fields:
                 if field not in data:
@@ -302,6 +490,7 @@ class Services(Resource):
         except Exception as exc:
             db.session.rollback()
             return {'error': str(exc)}, 500
+
 
 class ServicesById(Resource):
     def get(self, id):
@@ -353,7 +542,8 @@ class ServicesById(Resource):
             db.session.rollback()
             return {'error': str(exc)}, 500
 
-# Insurance Routes
+
+# Insurance resources
 class Insurances(Resource):
     def get(self):
         try:
@@ -367,7 +557,6 @@ class Insurances(Resource):
     def post(self):
         try:
             data = request.get_json()
-
             if 'name' not in data:
                 return {'error': 'Missing required field: name'}, 400
 
@@ -375,13 +564,13 @@ class Insurances(Resource):
                 return {'error': 'Insurance name already exists'}, 400
 
             insurance = Insurance(name=data['name'])
-
             db.session.add(insurance)
             db.session.commit()
             return {'message': 'Insurance created successfully', 'insurance': insurance.to_dict()}, 201
         except Exception as exc:
             db.session.rollback()
             return {'error': str(exc)}, 500
+
 
 class InsurancesById(Resource):
     def get(self, id):
@@ -429,7 +618,8 @@ class InsurancesById(Resource):
             db.session.rollback()
             return {'error': str(exc)}, 500
 
-# Patient Routes
+
+# Patient resources
 class Patients(Resource):
     @jwt_required()
     @admin_or_role_required(['admin', 'clinic'])
@@ -440,36 +630,6 @@ class Patients(Resource):
         except Exception as exc:
             return {'error': str(exc)}, 500
 
-    @jwt_required()
-    @admin_or_role_required(['admin', 'clinic'])
-    def post(self):
-        try:
-            data = request.get_json()
-
-            fields = ['id', 'name', 'contact', 'email']
-            for field in fields:
-                if field not in data:
-                    return {'error': f'Missing required field: {field}'}, 400
-
-            if Patient.query.get(data['id']):
-                return {'error': 'Patient ID already exists'}, 400
-            if Patient.query.filter_by(contact=data['contact']).first():
-                return {'error': 'Contact number already exists'}, 400
-            if Patient.query.filter_by(email=data['email']).first():
-                return {'error': 'Email already exists'}, 400
-
-            patient = Patient(
-                id=data['id'],
-                name=data['name'],
-                contact=data['contact'],
-                email=data['email']
-            )
-            db.session.add(patient)
-            db.session.commit()
-            return {'message': 'Patient created successfully', 'patient': patient.to_dict()}, 201
-        except Exception as exc:
-            db.session.rollback()
-            return {'error': str(exc)}, 500
 
 class PatientsById(Resource):
     @jwt_required()
@@ -527,7 +687,8 @@ class PatientsById(Resource):
             db.session.rollback()
             return {'error': str(exc)}, 500
 
-# Review Routes
+
+# Review resources
 class Reviews(Resource):
     def get(self):
         try:
@@ -535,16 +696,14 @@ class Reviews(Resource):
             patient_id = request.args.get('patient_id')
 
             query = Review.query
-            
-            # Filter by clinic through booking relationship
+
             if clinic_id:
                 query = query.join(Booking).join(ClinicService).filter(ClinicService.clinic_id == clinic_id)
-            
-            # Filter by patient through booking relationship
+
             if patient_id:
                 query = query.join(Booking).filter(Booking.patient_id == patient_id)
 
-            reviews = [review.to_dict() for review in query.all()] 
+            reviews = [review.to_dict() for review in query.all()]
             return reviews, 200
         except Exception as exc:
             return {'error': str(exc)}, 500
@@ -553,7 +712,6 @@ class Reviews(Resource):
     def post(self):
         try:
             data = request.get_json()
-
             fields = ['rating', 'booking_id']
             for field in fields:
                 if field not in data:
@@ -561,15 +719,14 @@ class Reviews(Resource):
 
             if not (1 <= data['rating'] <= 5):
                 return {'error': 'Rating must be between 1 and 5'}, 400
-            
+
             booking = Booking.query.get(data['booking_id'])
             if not booking:
                 return {'error': 'Booking not found'}, 404
-            
+
             if booking.review:
                 return {'error': 'Booking already has a review'}, 400
 
-            # Check if current user is the patient who made the booking
             current_user = get_jwt_identity()
             if current_user['role'] == 'patient' and booking.patient_id != current_user['id']:
                 return {'error': 'You can only review your own bookings'}, 403
@@ -585,6 +742,7 @@ class Reviews(Resource):
         except Exception as exc:
             db.session.rollback()
             return {'error': str(exc)}, 500
+
 
 class ReviewsById(Resource):
     def get(self, id):
@@ -603,7 +761,6 @@ class ReviewsById(Resource):
             if not review:
                 return {'error': 'Review not found'}, 404
 
-            # Check if current user is the patient who made the review
             current_user = get_jwt_identity()
             if current_user['role'] == 'patient' and review.booking.patient_id != current_user['id']:
                 return {'error': 'You can only edit your own reviews'}, 403
@@ -631,10 +788,9 @@ class ReviewsById(Resource):
             if not review:
                 return {'error': 'Review not found'}, 404
 
-            # Check if current user is the patient who made the review or admin
             current_user = get_jwt_identity()
-            if (current_user['role'] == 'patient' and review.booking.patient_id != current_user['id'] 
-                and current_user['role'] != 'admin'):
+            if (current_user['role'] == 'patient' and review.booking.patient_id != current_user['id']
+                    and current_user['role'] != 'admin'):
                 return {'error': 'You can only delete your own reviews'}, 403
 
             db.session.delete(review)
@@ -644,7 +800,8 @@ class ReviewsById(Resource):
             db.session.rollback()
             return {'error': str(exc)}, 500
 
-# Booking Routes
+
+# Booking resources
 class Bookings(Resource):
     @jwt_required()
     def get(self):
@@ -656,17 +813,13 @@ class Bookings(Resource):
 
             query = Booking.query
 
-            # Role-based filtering
             if current_user['role'] == 'patient':
-                # Patients can only see their own bookings
                 query = query.filter_by(patient_id=current_user['id'])
             elif current_user['role'] == 'clinic':
-                # Clinic staff can see bookings for their clinic
-                if clinic_id:
-                    query = query.join(ClinicService).filter(ClinicService.clinic_id == clinic_id)
-            # Admin can see all bookings
+                clinic = Clinic.query.filter_by(user_id=current_user['id']).first()
+                if clinic:
+                    query = query.join(ClinicService).filter(ClinicService.clinic_id == clinic.id)
 
-            # Additional filters
             if clinic_id and current_user['role'] != 'patient':
                 query = query.join(ClinicService).filter(ClinicService.clinic_id == clinic_id)
             if patient_id and current_user['role'] == 'admin':
@@ -683,13 +836,11 @@ class Bookings(Resource):
     def post(self):
         try:
             data = request.get_json()
-
             fields = ['appointment_date', 'clinic_service_id', 'patient_id']
             for field in fields:
                 if field not in data:
                     return {'error': f'Missing required field: {field}'}, 400
 
-            # Check if current user can create booking for this patient
             current_user = get_jwt_identity()
             if current_user['role'] == 'patient' and data['patient_id'] != current_user['id']:
                 return {'error': 'You can only create bookings for yourself'}, 403
@@ -701,11 +852,10 @@ class Bookings(Resource):
             except (ValueError, TypeError):
                 return {'error': 'Invalid appointment date format. Use YYYY-MM-DD HH:MM'}, 400
 
-            # Check if clinic_service exists
             clinic_service = ClinicService.query.get(data['clinic_service_id'])
             if not clinic_service:
                 return {'error': 'Clinic service combination not found'}, 404
-            
+
             if not Patient.query.get(data['patient_id']):
                 return {'error': 'Patient not found'}, 404
 
@@ -730,6 +880,7 @@ class Bookings(Resource):
             db.session.rollback()
             return {'error': str(exc)}, 500
 
+
 class BookingsById(Resource):
     @jwt_required()
     def get(self, id):
@@ -738,10 +889,9 @@ class BookingsById(Resource):
             if not booking:
                 return {'error': 'Booking not found'}, 404
 
-            # Check if current user can view this booking
             current_user = get_jwt_identity()
-            if (current_user['role'] == 'patient' and booking.patient_id != current_user['id'] 
-                and current_user['role'] != 'admin'):
+            if (current_user['role'] == 'patient' and booking.patient_id != current_user['id']
+                    and current_user['role'] != 'admin'):
                 return {'error': 'You can only view your own bookings'}, 403
 
             return {'booking': booking.to_dict()}, 200
@@ -755,10 +905,9 @@ class BookingsById(Resource):
             if not booking:
                 return {'error': 'Booking not found'}, 404
 
-            # Check if current user can modify this booking
             current_user = get_jwt_identity()
-            if (current_user['role'] == 'patient' and booking.patient_id != current_user['id'] 
-                and current_user['role'] not in ['admin', 'clinic']):
+            if (current_user['role'] == 'patient' and booking.patient_id != current_user['id']
+                    and current_user['role'] not in ['admin', 'clinic']):
                 return {'error': 'Insufficient permissions to modify this booking'}, 403
 
             data = request.get_json()
@@ -794,29 +943,27 @@ class BookingsById(Resource):
             if not booking:
                 return {'error': 'Booking not found'}, 404
 
-            # Check if current user can delete this booking
             current_user = get_jwt_identity()
-            if (current_user['role'] == 'patient' and booking.patient_id != current_user['id'] 
-                and current_user['role'] != 'admin'):
+            if (current_user['role'] == 'patient' and booking.patient_id != current_user['id']
+                    and current_user['role'] != 'admin'):
                 return {'error': 'You can only delete your own bookings'}, 403
 
             db.session.delete(booking)
             db.session.commit()
             return {'message': 'Booking deleted successfully'}, 204
-
         except Exception as exc:
             db.session.rollback()
             return {'error': str(exc)}, 500
 
-# ClinicService management routes
+
+# ClinicService management resources
 class ClinicServices(Resource):
     def get(self, clinic_id):
-        """Get all services offered by a specific clinic with prices"""
         try:
             clinic = Clinic.query.get(clinic_id)
             if not clinic:
                 return {'error': 'Clinic not found'}, 404
-            
+
             clinic_services = ClinicService.query.filter_by(clinic_id=clinic_id).all()
             return [cs.to_dict() for cs in clinic_services], 200
         except Exception as exc:
@@ -825,10 +972,8 @@ class ClinicServices(Resource):
     @jwt_required()
     @admin_or_role_required(['admin', 'clinic'])
     def post(self, clinic_id):
-        """Add a service to a clinic with a specific price"""
         try:
             data = request.get_json()
-
             fields = ['service_id', 'price']
             for field in fields:
                 if field not in data:
@@ -842,12 +987,11 @@ class ClinicServices(Resource):
             if not service:
                 return {'error': 'Service not found'}, 404
 
-            # Check if combination already exists
             existing = ClinicService.query.filter_by(
-                clinic_id=clinic_id, 
+                clinic_id=clinic_id,
                 service_id=data['service_id']
             ).first()
-            
+
             if existing:
                 return {'error': 'Service already offered by this clinic'}, 400
 
@@ -856,27 +1000,69 @@ class ClinicServices(Resource):
                 service_id=data['service_id'],
                 price=data['price']
             )
-            
+
             db.session.add(clinic_service)
             db.session.commit()
-
             return {'message': 'Service added to clinic successfully', 'clinic_service': clinic_service.to_dict()}, 201
         except Exception as exc:
             db.session.rollback()
             return {'error': str(exc)}, 500
 
+class ClinicServicesByClinicId(Resource):
+    @jwt_required()
+    @admin_or_role_required(['admin', 'clinic'])
+    def post(self, clinic_id):
+        try:
+            data = request.get_json()
+            service_id = data.get('service_id')
+            price = data.get('price')
+
+            if not service_id or price is None:
+                return {'error': 'Missing service_id or price'}, 400
+
+            clinic = Clinic.query.get(clinic_id)
+            service = Service.query.get(service_id)
+
+            if not clinic or not service:
+                return {'error': 'Clinic or service not found'}, 404
+
+            existing = ClinicService.query.filter_by(
+                clinic_id=clinic_id, service_id=service_id
+            ).first()
+            if existing:
+                return {'error': 'Service already added to clinic'}, 400
+
+            clinic_service = ClinicService(
+                clinic_id=clinic_id,
+                service_id=service_id,
+                price=price
+            )
+
+            db.session.add(clinic_service)
+            db.session.commit()
+
+            return {
+                'message': 'Service added to clinic successfully',
+                'clinic_service': clinic_service.to_dict()
+            }, 201
+
+        except Exception as exc:
+            db.session.rollback()
+            print("ERROR:", exc)
+            return {'error': str(exc)}, 500
+
+
 class ClinicServiceById(Resource):
     @jwt_required()
     @admin_or_role_required(['admin', 'clinic'])
     def patch(self, clinic_service_id):
-        """Update the price of a clinic service"""
         try:
             clinic_service = ClinicService.query.get(clinic_service_id)
             if not clinic_service:
                 return {'error': 'Clinic service not found'}, 404
 
             data = request.get_json()
-            
+
             if 'price' in data:
                 clinic_service.price = data['price']
 
@@ -889,7 +1075,6 @@ class ClinicServiceById(Resource):
     @jwt_required()
     @admin_or_role_required(['admin', 'clinic'])
     def delete(self, clinic_service_id):
-        """Remove a service from a clinic"""
         try:
             clinic_service = ClinicService.query.get(clinic_service_id)
             if not clinic_service:
@@ -902,6 +1087,7 @@ class ClinicServiceById(Resource):
             db.session.rollback()
             return {'error': str(exc)}, 500
 
+
 # Insurance management for clinics
 class ClinicInsurancesById(Resource):
     @jwt_required()
@@ -909,12 +1095,12 @@ class ClinicInsurancesById(Resource):
     def post(self, clinic_id):
         try:
             data = request.get_json()
-
             if 'insurance_id' not in data:
                 return {'error': 'Missing required field: insurance_id'}, 400
 
             clinic = Clinic.query.get(clinic_id)
-            insurance = Insurance.query.get(data['insurance_id'])
+            insurance_id = int(data['insurance_id'])
+            insurance = Insurance.query.get(insurance_id)
 
             if not clinic:
                 return {'error': 'Clinic not found'}, 404
@@ -925,7 +1111,6 @@ class ClinicInsurancesById(Resource):
 
             clinic.insurance_accepted.append(insurance)
             db.session.commit()
-
             return {'message': 'Insurance added to clinic successfully'}, 201
         except Exception as exc:
             db.session.rollback()
@@ -936,7 +1121,6 @@ class ClinicInsurancesById(Resource):
     def delete(self, clinic_id):
         try:
             data = request.get_json()
-
             if 'insurance_id' not in data:
                 return {'error': 'Missing required field: insurance_id'}, 400
 
@@ -952,30 +1136,31 @@ class ClinicInsurancesById(Resource):
 
             clinic.insurance_accepted.remove(insurance)
             db.session.commit()
-
             return {'message': 'Insurance removed from clinic successfully'}, 204
         except Exception as exc:
             db.session.rollback()
             return {'error': str(exc)}, 500
 
+
 # Register API endpoints
 api.add_resource(UserRegistration, '/api/register')
+api.add_resource(CurrentUser, '/api/me')
 api.add_resource(UserLogin, '/api/login')
 api.add_resource(UserLogout, '/api/logout')
 api.add_resource(UserProfile, '/api/profile')
-api.add_resource(PatientDashboard, '/api/patient')
-api.add_resource(ClinicDashboard, '/api/clinic')
-api.add_resource(AdminDashboard, '/api/admin')
+api.add_resource(PatientDashboard, '/api/patient-dashboard')
+api.add_resource(ClinicDashboard, '/api/clinic-dashboard')
+api.add_resource(AdminDashboard, '/api/admin-dashboard')
 
 # Main resource endpoints
 api.add_resource(Clinics, '/api/clinics')
-api.add_resource(ClinicsById, '/api/clinics/<int:id>') 
+api.add_resource(ClinicsById, '/api/clinics/<int:id>')
 api.add_resource(Services, '/api/services')
 api.add_resource(ServicesById, '/api/services/<int:id>')
 api.add_resource(Insurances, '/api/insurances')
 api.add_resource(InsurancesById, '/api/insurances/<int:id>')
 api.add_resource(Patients, '/api/patients')
-api.add_resource(PatientsById, '/api/patients/<int:id>') 
+api.add_resource(PatientsById, '/api/patients/<int:id>')
 api.add_resource(Reviews, '/api/reviews')
 api.add_resource(ReviewsById, '/api/reviews/<int:id>')
 api.add_resource(Bookings, '/api/bookings')
@@ -984,9 +1169,10 @@ api.add_resource(BookingsById, '/api/bookings/<int:id>')
 # ClinicService management routes
 api.add_resource(ClinicServices, '/api/clinics/<int:clinic_id>/services')
 api.add_resource(ClinicServiceById, '/api/clinic-services/<int:clinic_service_id>')
+api.add_resource(ClinicServicesByClinicId, '/api/clinics/<int:clinic_id>/services')
 
 # Insurance management for clinics
-api.add_resource(ClinicInsurancesById, '/api/clinics/<int:clinic_id>/insurances') 
+api.add_resource(ClinicInsurancesById, '/api/clinics/<int:clinic_id>/insurances')
 
 # Initialize DB and run app
 if __name__ == '__main__':
