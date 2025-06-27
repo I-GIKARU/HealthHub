@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { toast } from 'react-toastify';
 
-const API_BASE_URL = 'http://localhost:5000/api';
+const API_BASE_URL = 'https://8cff-154-159-237-85.ngrok-free.app/api';
 
 const useClinicServices = (clinicId = null) => {
     const [clinics, setClinics] = useState([]);
