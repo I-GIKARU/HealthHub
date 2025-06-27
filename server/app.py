@@ -856,7 +856,8 @@ class Bookings(Resource):
             if not clinic_service:
                 return {'error': 'Clinic service combination not found'}, 404
 
-            if not Patient.query.get(data['patient_id']):
+             patient = Patient.query.filter_by(user_id=data['patient_id']).first()
+            if not patient:
                 return {'error': 'Patient not found'}, 404
 
             statuses = ['pending', 'confirmed', 'cancelled', 'completed']
