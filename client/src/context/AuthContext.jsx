@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { toast } from 'react-toastify';
 
-const API_BASE_URL = 'http://localhost:5000';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 const LOGIN_URL = `${API_BASE_URL}/api/login`;
 const REGISTER_URL = `${API_BASE_URL}/api/register`;
 const LOGOUT_URL = `${API_BASE_URL}/api/logout`;

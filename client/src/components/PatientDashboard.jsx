@@ -23,7 +23,7 @@ function PatientDashboard() {
 
         const fetchPatientProfile = async () => {
             try {
-                const response = await fetch('http://localhost:5000/api/profile', {
+                const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/profile`, {
                     method: 'GET',
                     credentials: 'include',
                     headers: {
@@ -50,14 +50,6 @@ function PatientDashboard() {
         fetchPatientProfile();
     }, [currentUser, navigate]);
 
-    const handleLogout = async () => {
-        try {
-            await logout();
-            navigate('/login');
-        } catch (error) {
-            toast.error('Logout failed');
-        }
-    };
 
     const handleCancel = async (bookingId) => {
         try {

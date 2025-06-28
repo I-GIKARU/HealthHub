@@ -71,7 +71,7 @@ const EditClinic = () => {
     const parsedId = parseInt(selectedInsurance, 10);
     if (parsedId && !clinic.insurance_accepted.includes(parsedId)) {
       try {
-        await fetch(`http://localhost:5000/api/clinics/${clinic.id}/insurances`, {
+        await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/clinics/${clinic.id}/insurances`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json"
@@ -95,7 +95,7 @@ const EditClinic = () => {
 
   const removeInsurance = async (insuranceId) => {
     try {
-      const res = await fetch(`http://localhost:5000/api/clinics/${clinic.id}/insurances`, {
+      const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/clinics/${clinic.id}/insurances`, {
         method: 'DELETE',
         headers: {
           'Content-Type': 'application/json',

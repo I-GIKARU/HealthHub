@@ -37,7 +37,7 @@ app.config['JWT_COOKIE_DOMAIN'] = None  # Let browser handle domain
 CORS(app,
     resources={
         r"/api/*": {
-            "origins": ["http://localhost:5173"],
+            "origins": ["*"],
             "supports_credentials": True,
             "expose_headers": ["Content-Type"],
             "allow_headers": ["Content-Type"],

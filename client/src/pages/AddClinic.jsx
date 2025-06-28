@@ -71,7 +71,7 @@ const AddClinic = () => {
       const newClinic = await addClinic(baseClinic);
 
       for (const insuranceId of clinic.insurance_accepted) {
-        await fetch(`http://127.0.0.1:5000/api/clinics/${newClinic.id}/insurances`, {
+        await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/clinics/${newClinic.id}/insurances`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -82,7 +82,7 @@ const AddClinic = () => {
       }
 
       for (const service of clinic.services) {
-        await fetch(`http://127.0.0.1:5000/api/clinics/${newClinic.id}/services`, {
+        await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/clinics/${newClinic.id}/services`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

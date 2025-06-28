@@ -25,12 +25,12 @@ function ClinicProfileForm() {
     useEffect(() => {
         const fetchClinic = async () => {
             try {
-                const res = await fetch('http://localhost:5000/api/profile', {
+            const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/profile`, {
                     credentials: 'include',
                 });
-                const data = await res.json();
+                const data = await response.json();
 
-                if (res.ok && data.user?.role === 'clinic' && data.user?.name) {
+                if (response.ok && data.user?.role === 'clinic' && data.user?.name) {
                     setClinic({
                         name: data.user.name || '',
                         specialty: data.user.specialty || '',
@@ -89,7 +89,7 @@ function ClinicProfileForm() {
         };
 
         try {
-            const res = await fetch(`http://localhost:5000/api/${isNew ? 'clinics' : 'profile'}`, {
+            const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/${isNew ? 'clinics' : 'profile'}`, {
                 method: isNew ? 'POST' : 'PUT',
                 headers: {
                     'Content-Type': 'application/json'

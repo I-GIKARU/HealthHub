@@ -19,7 +19,7 @@ function ClinicDashboard() {
 
         const fetchClinicProfile = async () => {
             try {
-                const response = await fetch('http://localhost:5000/api/profile', {
+                const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/profile`, {
                     method: 'GET',
                     credentials: 'include', // Required for cookies
                     headers: {
@@ -58,16 +58,6 @@ function ClinicDashboard() {
         fetchClinicProfile();
     }, [currentUser, navigate, logout]);
 
-    const handleLogout = async () => {
-        try {
-            await logout();
-            navigate('/login');
-            toast.success('Logged out successfully');
-        } catch (error) {
-            console.error('Logout error:', error);
-            toast.error('Logout failed. Please try again.');
-        }
-    };
 
     // Show loading state or redirect
     if (!currentUser || currentUser.role !== 'clinic') {

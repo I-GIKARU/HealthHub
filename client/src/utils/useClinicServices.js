@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { toast } from 'react-toastify';
 
-const API_BASE_URL = 'http://localhost:5000/api';
+const API_URL = `${import.meta.env.VITE_API_BASE_URL}/api`;
 
 const useClinicServices = (clinicId = null) => {
     const [clinics, setClinics] = useState([]);
@@ -17,7 +17,7 @@ const useClinicServices = (clinicId = null) => {
     useEffect(() => {
         const fetchClinics = async () => {
             try {
-                const response = await fetch(`${API_BASE_URL}/clinics`, {
+                const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/clinics`, {
                     credentials: 'include',
                 });
 
@@ -35,7 +35,7 @@ const useClinicServices = (clinicId = null) => {
 
         const fetchServices = async () => {
             try {
-                const response = await fetch(`${API_BASE_URL}/services`, {
+                const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/services`, {
                     credentials: 'include',
                 });
 
@@ -64,7 +64,7 @@ const useClinicServices = (clinicId = null) => {
     const fetchClinicServices = async (clinicId) => {
         try {
             setLoading(prev => ({ ...prev, clinicServices: true }));
-            const response = await fetch(`${API_BASE_URL}/clinics/${clinicId}/services`, {
+            const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/clinics/${clinicId}/services`, {
                 credentials: 'include',
             });
 
@@ -82,7 +82,7 @@ const useClinicServices = (clinicId = null) => {
 
     const addClinic = async (clinicData) => {
         try {
-            const response = await fetch(`${API_BASE_URL}/clinics`, {
+            const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/clinics`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -108,7 +108,7 @@ const useClinicServices = (clinicId = null) => {
 
     const updateClinic = async (clinicId, updatedData) => {
         try {
-            const response = await fetch(`${API_BASE_URL}/clinics/${clinicId}`, {
+            const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/clinics/${clinicId}`, {
                 method: 'PATCH',
                 headers: {
                     'Content-Type': 'application/json',
@@ -136,7 +136,7 @@ const useClinicServices = (clinicId = null) => {
 
     const deleteClinic = async (clinicId) => {
         try {
-            const response = await fetch(`${API_BASE_URL}/clinics/${clinicId}`, {
+            const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/clinics/${clinicId}`, {
                 method: 'DELETE',
                 credentials: 'include',
             });
@@ -156,7 +156,7 @@ const useClinicServices = (clinicId = null) => {
 
     const addClinicService = async (clinicId, serviceId, price) => {
         try {
-            const response = await fetch(`${API_BASE_URL}/clinics/${clinicId}/services`, {
+            const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/clinics/${clinicId}/services`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -185,7 +185,7 @@ const useClinicServices = (clinicId = null) => {
 
     const updateClinicService = async (clinicServiceId, updatedData) => {
         try {
-            const response = await fetch(`${API_BASE_URL}/clinic-services/${clinicServiceId}`, {
+            const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/clinic-services/${clinicServiceId}`, {
                 method: 'PATCH',
                 headers: {
                     'Content-Type': 'application/json',
@@ -213,7 +213,7 @@ const useClinicServices = (clinicId = null) => {
 
     const deleteClinicService = async (clinicServiceId) => {
         try {
-            const response = await fetch(`${API_BASE_URL}/clinic-services/${clinicServiceId}`, {
+            const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/clinic-services/${clinicServiceId}`, {
                 method: 'DELETE',
                 credentials: 'include',
             });
