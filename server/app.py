@@ -872,7 +872,7 @@ class Bookings(Resource):
                 status=status,
                 notes=data.get('notes'),
                 clinic_service_id=data['clinic_service_id'],
-                patient_id=data['patient_id']
+                patient_id=patient.id
             )
 
             db.session.add(booking)
