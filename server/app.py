@@ -21,7 +21,7 @@ app.config.from_object(__name__)
 # Configuration
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'super-secret-key')
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL',
-                                                       f'sqlite:///{os.path.join(os.path.abspath(os.path.dirname(__file__)), "healthhub.db")}')
+                                                       f'sqlite:///{os.path.join(os.path.abspath(os.path.dirname(__file__)), "healthhb.db")}')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['JWT_ACCESS_TOKEN_EXPIRES'] = False
 # Update your Flask JWT configuration
@@ -33,11 +33,12 @@ app.config['JWT_COOKIE_SECURE'] = True  # <-- Set this to True'
 app.config['JWT_SESSION_COOKIE'] = False  # Persistent cookie
 app.config['JWT_COOKIE_DOMAIN'] = None  # Let browser handle domain
 
-# Update CORS configuration
+# # Update CORS configuration
+
 CORS(app,
     resources={
         r"/api/*": {
-            "origins": ["*"],
+            "origins": ["https://health-hub-lyart.vercel.app","http://localhost:5173"],
             "supports_credentials": True,
             "expose_headers": ["Content-Type"],
             "allow_headers": ["Content-Type"],
