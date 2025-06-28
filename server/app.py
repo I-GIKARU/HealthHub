@@ -815,7 +815,10 @@ class Bookings(Resource):
             query = Booking.query
 
             if current_user['role'] == 'patient':
-                query = query.filter_by(patient_id=current_user['id'])
+                patient = Patient.query.filter_by(user_id=current_user['id']).first()
+                if not patient:
+                    return {'error': 'Patient profile not found'}, 404
+                query = query.filter_by(patient_id=patient.id)
             elif current_user['role'] == 'clinic':
                 clinic = Clinic.query.filter_by(user_id=current_user['id']).first()
                 if clinic:
